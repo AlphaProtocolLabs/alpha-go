@@ -2,7 +2,11 @@
 
 Alpha GO is the mobile app for [Alpha Protocol Network](https://www.alphaprotocol.network): private networks on hardware you own, joined to a global mesh.
 
-**Status: in testing.** The Android app works and is open to download. The mesh network features are still being built, so today the app talks to its backend over the internet like any other app.
+**Status: in testing.** The Android app is open to download.
+
+**Known issue in 1.5.0 and 1.6.0: the Bitcoin wallet does not work.** The wallet's native library was left out of these builds, so creating or importing a wallet fails, no bitcoin address is shown, and the app asks you to set up a wallet again each time it starts. Do not rely on these builds to hold bitcoin. The event guide, account, chats and VIBE features do not depend on it. A fixed build is being prepared.
+
+ The mesh network features are still being built, so today the app talks to its backend over the internet like any other app.
 
 - Download for Android: https://go.alphaprotocol.network/download
 - Web version (no install): https://go.alphaprotocol.network
@@ -14,7 +18,7 @@ Alpha GO is the mobile app for [Alpha Protocol Network](https://www.alphaprotoco
 - An event map with a day and time dial. Pins appear while an event is on or about to start. The current guide covers TOKEN2049 Singapore 2026
 - A searchable list of every event, with filters for day, type, saved and free
 - Register, get directions, save, and check in on site to earn testnet VIBE
-- A self-custody Bitcoin wallet (mainnet). The recovery phrase is kept in Android secure storage and never leaves the phone
+- A self-custody Bitcoin wallet (mainnet): not working in 1.5.0 and 1.6.0, see the known issue above
 - A read-only testnet VIBE balance on Aptos, from an account derived from the same recovery phrase
 - Chats and direct messages with other members, and Topsi, an in-app assistant paid for in VIBE
 - Send VIBE to other members, and withdraw bought VIBE to your own Aptos testnet wallet. VIBE earned for signing up, checking in or inviting people can be spent in the app but not sent or withdrawn
