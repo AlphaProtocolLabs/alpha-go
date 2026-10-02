@@ -1,4 +1,8 @@
 import 'package:alpha_go/controllers/biometrics_controller.dart';
+import 'package:alpha_go/controllers/chat_controller.dart';
+import 'package:alpha_go/models/chat_models.dart';
+import 'package:alpha_go/views/screens/chat_screen.dart';
+import 'package:alpha_go/views/screens/member_screen.dart';
 import 'package:alpha_go/controllers/event_controller.dart';
 import 'package:alpha_go/controllers/user_controller.dart';
 import 'package:alpha_go/controllers/vibe_controller.dart';
@@ -36,6 +40,7 @@ void main() async {
   final WalletController controller = Get.put(WalletController());
   Get.put(UserController());
   Get.put(VibeController());
+  Get.put(ChatController());
   final EventController eventController = Get.put(EventController());
   final BiometricsController auth = Get.put(BiometricsController());
   await auth.initialize();
@@ -126,6 +131,16 @@ class MyApp extends StatelessWidget {
               path: 'eventDetails',
               builder: (context, state) =>
                   EventDetailsScreen(event: state.extra as EventModel),
+            ),
+            GoRoute(
+              path: 'chat',
+              builder: (context, state) =>
+                  ChatScreen(chat: state.extra as ChatSummary),
+            ),
+            GoRoute(
+              path: 'member',
+              builder: (context, state) =>
+                  MemberScreen(memberId: state.extra as String),
             ),
             GoRoute(
               path: 'token',

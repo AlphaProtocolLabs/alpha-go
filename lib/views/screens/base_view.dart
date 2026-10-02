@@ -1,4 +1,7 @@
+import 'package:alpha_go/controllers/chat_controller.dart';
 import 'package:alpha_go/controllers/vibe_controller.dart';
+import 'package:alpha_go/views/screens/chats_screen.dart';
+import 'package:alpha_go/views/screens/topsi_tab.dart';
 import 'package:alpha_go/controllers/wallet_controller.dart';
 import 'package:alpha_go/models/const_model.dart';
 import 'package:alpha_go/views/screens/events_list_screen.dart';
@@ -17,23 +20,29 @@ class NavBar extends StatefulWidget {
 }
 
 class _NavBarState extends State<NavBar> {
-  static const mapTab = 2;
+  static const mapTab = 4;
   int _selectedIndex = mapTab;
   static final List<Widget> _widgetOptions = <Widget>[
     const EventsListScreen(),
+    const ChatsScreen(),
+    const TopsiTab(),
     const ProfilePage(),
     const MapHomePage(),
   ];
   static const List<IconData> iconList = <IconData>[
     Icons.view_list,
+    Icons.chat_bubble_outline,
+    Icons.auto_awesome,
     Icons.person,
   ];
+  final ChatController chats = Get.find();
 
   @override
   void initState() {
     super.initState();
     final mnemonic = Get.find<WalletController>().mnemonic;
     if (mnemonic != null) Get.find<VibeController>().load(mnemonic);
+    chats.refreshChats(quiet: true);
   }
 
   @override
@@ -55,11 +64,22 @@ class _NavBarState extends State<NavBar> {
           borderColor: Constants.gold,
           backgroundColor: Colors.black,
           itemCount: iconList.length,
-          tabBuilder: (int index, bool isActive) => Icon(
-            iconList[index],
-            size: 26.sp,
-            color: isActive ? Constants.gold : Colors.white54,
-          ),
+          tabBuilder: (int index, bool isActive) {
+            final icon = Icon(
+              iconList[index],
+              size: 26.sp,
+              color: isActive ? Constants.gold : Colors.white54,
+            );
+            if (index != 1) return icon;
+            // Unread badge on Chats.
+            return Obx(() => Badge(
+                  isLabelVisible: chats.unread > 0,
+                  label: Text('${chats.unread}'),
+                  backgroundColor: Constants.gold,
+                  textColor: Colors.black,
+                  child: icon,
+                ));
+          },
           activeIndex: _selectedIndex == mapTab ? -1 : _selectedIndex,
           gapLocation: GapLocation.center,
           notchSmoothness: NotchSmoothness.verySmoothEdge,

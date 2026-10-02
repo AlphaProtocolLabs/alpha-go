@@ -14,6 +14,8 @@ class Account {
     required this.saves,
     required this.checkins,
     required this.vibe,
+    this.vibeEarned = 0,
+    this.vibeSendable = 0,
   });
 
   final String id;
@@ -32,6 +34,12 @@ class Account {
   /// Testnet VIBE balance on the account ledger.
   final int vibe;
 
+  /// Earned in the app (sign-up, check-ins, invites): pays for Topsi only.
+  final int vibeEarned;
+
+  /// Bought or received: can also be sent to members and withdrawn.
+  final int vibeSendable;
+
   factory Account.fromApi(Map<String, dynamic> data) {
     final u = data['user'] as Map<String, dynamic>;
     return Account(
@@ -49,6 +57,8 @@ class Account {
       saves: Set<String>.from(data['saves'] as List? ?? const []),
       checkins: Set<String>.from(data['checkins'] as List? ?? const []),
       vibe: (data['balance'] as num?)?.toInt() ?? 0,
+      vibeEarned: ((data['balances'] as Map?)?['reward'] as num?)?.toInt() ?? 0,
+      vibeSendable: ((data['balances'] as Map?)?['main'] as num?)?.toInt() ?? 0,
     );
   }
 

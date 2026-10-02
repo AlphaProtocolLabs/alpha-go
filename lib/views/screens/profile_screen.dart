@@ -3,6 +3,7 @@ import 'package:alpha_go/controllers/vibe_controller.dart';
 import 'package:alpha_go/controllers/wallet_controller.dart';
 import 'package:alpha_go/models/const_model.dart';
 import 'package:alpha_go/models/user_model.dart';
+import 'package:alpha_go/services/api.dart';
 import 'package:alpha_go/views/widgets/drawer_widget.dart';
 import 'package:alpha_go/views/widgets/navbar_widget.dart';
 import 'package:flutter/material.dart';
@@ -195,9 +196,11 @@ class _ProfilePageState extends State<ProfilePage> {
     return _card(
       title: 'VIBE (testnet)',
       children: [
-        _line('Earned in Alpha GO', '${fmt.format(a.vibe)} VIBE'),
+        _line('Balance', '${fmt.format(a.vibe)} VIBE'),
+        _line('  Sendable', '${fmt.format(a.vibeSendable)} VIBE'),
+        _line('  Earned (Topsi only)', '${fmt.format(a.vibeEarned)} VIBE'),
         Obx(() => _line(
-            'On Aptos testnet',
+            'In your Aptos wallet',
             vibe.onChain.value == null
                 ? '…'
                 : '${fmt.format(vibe.onChain.value)} VIBE')),
@@ -206,13 +209,87 @@ class _ProfilePageState extends State<ProfilePage> {
           if (addr == null) return const SizedBox();
           return _address('Aptos address', addr);
         }),
+        SizedBox(height: 1.h),
+        OutlinedButton(
+          style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Constants.gold)),
+          onPressed: a.vibeSendable > 0 ? () => _withdraw(a) : null,
+          child: const Text('Withdraw to Aptos wallet',
+              style: TextStyle(color: Constants.gold)),
+        ),
         Text(
-          'Testnet VIBE has utility inside the Alpha Protocol ecosystem. It is not a mainnet token.',
+          'Testnet VIBE has utility inside the Alpha Protocol ecosystem. It is not a mainnet token. VIBE you buy or receive can be sent and withdrawn; VIBE you earn pays for Topsi.',
           style: TextStyle(
               fontFamily: 'Roboto', fontSize: 12.sp, color: Colors.white54),
         ),
       ],
     );
+  }
+
+  Future<void> _withdraw(Account a) async {
+    final amount = TextEditingController();
+    final address = TextEditingController(text: vibe.balanceAddress ?? '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.black,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Constants.gold)),
+        title: const Text('Withdraw VIBE'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+                'Up to ${NumberFormat.decimalPattern().format(a.vibeSendable)} VIBE, to an Aptos testnet address. Check the address: transfers cannot be reversed.',
+                style: const TextStyle(fontFamily: 'Roboto', color: Colors.white70)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: amount,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              style: Constants.inputStyle,
+              decoration: Constants.inputDecoration.copyWith(labelText: 'Amount'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: address,
+              style: Constants.inputStyle,
+              decoration: Constants.inputDecoration
+                  .copyWith(labelText: 'To (this phone\'s address, or Petra)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Withdraw')),
+        ],
+      ),
+    );
+    final n = int.tryParse(amount.text);
+    if (ok != true || n == null || n <= 0) return;
+    setState(() => syncing = true);
+    try {
+      await Api.withdraw(n, address.text.trim());
+      await user.refreshAccount();
+      await vibe.refreshBalance();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Sent $n VIBE to your Aptos wallet')));
+      }
+    } on ApiException catch (e) {
+      await user.refreshAccount();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => syncing = false);
+    }
   }
 
   Widget _bitcoinCard() {
