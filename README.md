@@ -16,8 +16,10 @@ Alpha GO is the mobile app for [Alpha Protocol Network](https://www.alphaprotoco
 - Register, get directions, save, and check in on site to earn testnet VIBE
 - A self-custody Bitcoin wallet (mainnet). The recovery phrase is kept in Android secure storage and never leaves the phone
 - A read-only testnet VIBE balance on Aptos, from an account derived from the same recovery phrase
+- Chats and direct messages with other members, and Topsi, an in-app assistant paid for in VIBE
+- Send VIBE to other members, and withdraw bought VIBE to your own Aptos testnet wallet. VIBE earned for signing up, checking in or inviting people can be spent in the app but not sent or withdrawn
 
-Not in this build: chat, and the mesh features (phone-to-phone links, relaying). Those are planned.
+Not in this build: the mesh features (phone-to-phone links, relaying). Those are planned.
 
 ## Verify a download
 
