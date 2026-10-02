@@ -1,178 +1,63 @@
-# Alpha Go
+# Alpha GO
 
-Alpha Go is a blockchain-based social application that combines wallet functionality with social event management and community features built with Flutter.
+Alpha GO is the mobile app for [Alpha Protocol Network](https://www.alphaprotocol.network): private networks on hardware you own, joined to a global mesh.
 
-![Alpha Go](assets/alpha.jpg)
+**Status: in testing.** The Android app works and is open to download. The mesh network features are still being built, so today the app talks to its backend over the internet like any other app.
 
-## Overview
+- Download for Android: https://go.alphaprotocol.network/download
+- Web version (no install): https://go.alphaprotocol.network
+- Releases and checksums: https://github.com/AlphaProtocolLabs/alpha-go/releases
 
-Alpha Go is a feature-rich application that combines cryptocurrency wallet management with social features. It enables users to manage their blockchain assets, create and join events, share moments in a social timeline, and interact with other users in the community.
+## What is in this build
 
-## Key Features
+- One account shared with the web guide at go.alphaprotocol.network: profile, saved events, check-ins and testnet VIBE
+- An event map with a day and time dial. Pins appear while an event is on or about to start. The current guide covers TOKEN2049 Singapore 2026
+- A searchable list of every event, with filters for day, type, saved and free
+- Register, get directions, save, and check in on site to earn testnet VIBE
+- A self-custody Bitcoin wallet (mainnet). The recovery phrase is kept in Android secure storage and never leaves the phone
+- A read-only testnet VIBE balance on Aptos, from an account derived from the same recovery phrase
 
-- **Blockchain Wallet**: Secure cryptocurrency wallet with mnemonic phrase creation and import functionality
-- **Events Management**: Create, discover, and join events with location-based features
-- **Social Timeline**: Share and view moments in a timeline format with image support
-- **Ordinal Minting**: Mint Bitcoin ordinals directly through the app
-- **User Profiles**: Customizable profiles with wallet integration
-- **Biometric Authentication**: Enhanced security with biometric authentication
-- **Responsive Design**: Works across various device screen sizes
+Not in this build: chat, and the mesh features (phone-to-phone links, relaying). Those are planned.
 
-## Technical Architecture
+## Verify a download
 
-### Tech Stack
-- **Frontend**: Flutter
-- **Backend**: Firebase (Authentication, Firestore, Storage)
-- **State Management**: GetX
-- **Routing**: Go Router
-- **Secure Storage**: Shared Preferences
-- **Maps & Location**: MapBox integration
+Releases are signed with the Alpha Protocol Labs key.
 
-## Database Schema
-
-Below is a flowchart representation of the Alpha Go database schema showing models and their relationships with Firebase collections:
-
-```mermaid
-flowchart TD
-    %% Define Firebase Collections (Databases)
-    subgraph FirebaseCollections["Firebase Collections"]
-        wallets[/"wallets"/]
-        events[/"events"/]
-        messages[/"messages"/]
-        timeline[/"timeline"/]
-    end
-
-    %% Define Models
-    subgraph Models["Data Models"]
-        WalletUser["WalletUser
-        ---
-        pfpUrl: String
-        walletAddress: String
-        accountName: String
-        bio: String
-        externalLink: String"]
-
-        EventModel["EventModel
-        ---
-        imageUrl: String
-        eventName: String
-        description: String
-        location: GeoPoint
-        startTime: DateTime
-        endTime: DateTime
-        hosts: List<WalletUser>
-        locationName: String
-        cost: int"]
-
-        TimelinePosts["TimelinePosts
-        ---
-        imageUrl: String
-        uid: String
-        timestamp: int"]
-
-        MintOrdinalModel["MintOrdinalModel
-        ---
-        id: String
-        totalFee: int
-        serviceFee: int
-        chainFee: int
-        baseFee: int
-        ... (other properties)
-        inscriptionData: Map<String, dynamic>
-        inscriptionName: String
-        inscriptionType: String
-        inscriptionURL: String"]
-    end
-
-    %% Define Firebase Storage
-    subgraph FirebaseStorage["Firebase Storage"]
-        userPfp["user profile pictures (/pfps)"]
-        eventImages["event images (/events)"]
-        timelinePics["timeline pictures (/timeline)"]
-    end
-
-    %% Define Relationships
-    WalletUser --> wallets
-    EventModel --> events
-    EventModel --> WalletUser
-    TimelinePosts --> timeline
-    TimelinePosts --> userPfp
-    EventModel --> eventImages
-    TimelinePosts --> timelinePics
+```
+Signing certificate SHA-256:
+8f5791ad9c812ba0266972972f294a46a41baa2153cb37aeb7de73aa16b79c85
 ```
 
-### Collection Details
+Check a file with `apksigner verify --print-certs <file>.apk`, and compare its SHA-256 with `SHA256SUMS.txt` on the release.
 
-1. **wallets** - Stores user profile information
-   - Each document represents a user with wallet address as ID
-   - Contains profile data (name, bio, profile picture URL, wallet details)
+## VIBE
 
-2. **events** - Stores event information
-   - Each document represents a single event with event details
-   - References to hosts (as wallet addresses)
-   - Contains event metadata (name, description, location, time)
+VIBE is live on the Aptos testnet:
+[`0x24cb561c…d65388::vibe_token`](https://explorer.aptoslabs.com/account/0x24cb561c64c32942eb8600d5135f0185c23bcd06cd8cf33422ce2f9b77d65388/modules/code/vibe_token?network=testnet).
+Testnet VIBE is for use inside the Alpha Protocol ecosystem. It is not a share, a security or a promise of future value.
 
-3. **messages** - Stores communication between users
-   - Direct messaging functionality
+## Build it yourself
 
-4. **timeline** - Stores user timeline posts
-   - Each document represents a post with image URL and timestamp
-   - References the user who created the post
+You need Flutter 3.44 or newer and the Android SDK.
 
-### Storage Structure
+1. Copy `.env.example` to `.env` and fill it in:
+   - `API_BASE`: the Alpha GO backend, `https://go.alphaprotocol.network`
+   - `MAPBOX_TOKEN`: a public Mapbox token (`pk.…`)
+   - `MAPBOX_STYLE_URL`: a Mapbox style, for example `mapbox://styles/mapbox/dark-v11`
+   - `ORDISCAN_API_KEY`: optional, can stay empty
+2. `flutter pub get`
+3. `flutter run`, or `flutter build apk --release --split-per-abi`
 
-Firebase Storage is used to store various media files:
-- **/pfps** - User profile pictures
-- **/events** - Event images
-- **/timeline** - Timeline post images
+A release build is signed with your own key if `ALPHA_GO_KEY_PROPERTIES` points to a properties file with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`. Without it the build falls back to the debug key, which is fine for testing and wrong for distribution.
 
-## Application Flow
+Run the tests with `flutter test`.
 
-1. **Onboarding & Authentication**:
-   - User creates or imports a wallet using mnemonic phrases
-   - Sets up password protection
-   - Authentication with biometrics
+## Branches
 
-2. **Main Features**:
-   - Home screen with timeline posts and events
-   - Wallet management for cryptocurrency assets
-   - Event creation and discovery
-   - Social interaction with other users
+`release-prep` holds the current release. `main` is the earlier demo line. This repository continues the original work at [M4dhav/alpha-go](https://github.com/M4dhav/alpha-go).
 
-## Getting Started
+## Who builds it
 
-### Prerequisites
-- Flutter SDK (latest version)
-- Firebase account and project setup
-- Environment configuration
+The Alpha GO app was built by Madhav Gupta. Alpha Protocol Network was founded by Jessy Artman and is designed, built and operated by [Powerclub Global](https://powerclubglobal.com).
 
-### Installation
-1. Clone the repository
-```bash
-git clone https://github.com/yourusername/alpha_go.git
-```
-
-2. Install dependencies
-```bash
-flutter pub get
-```
-
-3. Create a `.env` file in the root directory with your environment variables
-
-4. Run the application
-```bash
-flutter run
-```
-
-## Building for Different Platforms
-
-Alpha Go is a cross-platform application built with Flutter that supports:
-- Android
-- iOS
-
-
-## Acknowledgements
-
-- Flutter and Dart teams
-- Firebase platform
-- All third-party libraries used in this project
+Found a problem? Open an issue here, or tell us in the [Telegram group](https://t.me/+ccm4dRdIdVsxYmYx). Contact: apn@powerclubglobal.com
