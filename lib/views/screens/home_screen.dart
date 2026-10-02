@@ -1,22 +1,20 @@
 import 'dart:convert';
-import 'dart:developer';
+
 import 'package:alpha_go/controllers/event_controller.dart';
-import 'package:alpha_go/controllers/user_controller.dart';
 import 'package:alpha_go/models/const_model.dart';
 import 'package:alpha_go/models/event_model.dart';
+import 'package:alpha_go/models/sgt.dart';
 import 'package:alpha_go/views/widgets/drawer_widget.dart';
-import 'package:alpha_go/views/widgets/event_widget.dart';
 import 'package:alpha_go/views/widgets/navbar_widget.dart';
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 import 'package:geolocator/geolocator.dart' as geo;
+import 'package:get/get.dart';
 import 'package:go_router/go_router.dart';
-import 'package:latlong2/latlong.dart' as ltlng;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mb;
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:responsive_sizer/responsive_sizer.dart';
 
+/// Map of the week. Like Blackrock GO, pins appear only while an event is on
+/// (gold) or about to start (outlined), at the time chosen on the dial.
 class MapHomePage extends StatefulWidget {
   const MapHomePage({super.key});
 
@@ -25,246 +23,273 @@ class MapHomePage extends StatefulWidget {
 }
 
 class _MapHomePageState extends State<MapHomePage> {
-  ltlng.LatLng? userPos;
-
-  mb.MapboxMap? mapboxMap;
-  final EventController eventController = Get.find();
-  final UserController userController = Get.find();
+  final EventController events = Get.find();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  mb.MapboxMap? map;
+  bool styleReady = false;
+  late DateTime at = _defaultTime();
+  Worker? _sub;
 
-  Future<geo.Position> determinePosition() async {
-    bool serviceEnabled;
-    geo.LocationPermission permission;
+  /// Marina Bay, where most of the week happens.
+  static final center =
+      mb.Point(coordinates: mb.Position(103.8545, 1.2850));
 
-    serviceEnabled = await geo.Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return Future.error('Location services are disabled.');
-    }
-
-    permission = await geo.Geolocator.checkPermission();
-    if (permission == geo.LocationPermission.denied) {
-      permission = await geo.Geolocator.requestPermission();
-      if (permission == geo.LocationPermission.denied) {
-        return Future.error('Location permissions are denied');
-      }
-    }
-
-    if (permission == geo.LocationPermission.deniedForever) {
-      return Future.error(
-          'Location permissions are permanently denied, we cannot request permissions.');
-    }
-
-    // When we reach here, permissions are granted and we can
-    // continue accessing the position of the device.
-    return await geo.Geolocator.getCurrentPosition(
-        desiredAccuracy: geo.LocationAccuracy.best);
+  static DateTime _defaultTime() {
+    final now = DateTime.now().toUtc();
+    final first = Sgt.week.first;
+    final last = Sgt.week.last.add(const Duration(days: 1));
+    if (now.isAfter(first) && now.isBefore(last)) return now;
+    // Before the week: preview the first evening.
+    return first.add(const Duration(hours: 13)); // 18:00 SGT Monday
   }
 
-  Future<void> requestLocationPermission() async {
-    var status = await Permission.locationWhenInUse.status;
-    if (!status.isGranted) {
-      await Permission.location.request();
-    }
+  int get dayIndex {
+    final i = at.difference(Sgt.week.first).inHours ~/ 24;
+    return i.clamp(0, 6);
   }
+
+  /// Hours since 05:00 SGT on the chosen day, 0 to 23.99.
+  double get hourOfDay =>
+      at.difference(Sgt.week[dayIndex]).inMinutes / 60.0;
+
+  List<EventModel> get visible => events.events
+      .where((e) =>
+          e.hasLocation &&
+          (e.stateAt(at) == EventState.live ||
+              e.stateAt(at) == EventState.soon))
+      .toList();
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((timeStamp) async {
-      await requestLocationPermission();
-      mb.MapboxOptions.setAccessToken(Constants.mapboxToken);
-      determinePosition().then((value) {
-        setState(() {
-          userPos = ltlng.LatLng(value.latitude, value.longitude);
-          log('userPos: $userPos');
-        });
-      });
+    mb.MapboxOptions.setAccessToken(Constants.mapboxToken);
+    _sub = ever(events.events, (_) => _refreshPins());
+    _askLocation();
+  }
+
+  @override
+  void dispose() {
+    _sub?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _askLocation() async {
+    var p = await geo.Geolocator.checkPermission();
+    if (p == geo.LocationPermission.denied) {
+      p = await geo.Geolocator.requestPermission();
+    }
+    if (p == geo.LocationPermission.whileInUse ||
+        p == geo.LocationPermission.always) {
+      await map?.location.updateSettings(mb.LocationComponentSettings(
+          enabled: true, pulsingEnabled: true));
+    }
+  }
+
+  String _geojson() {
+    final list = visible;
+    return jsonEncode({
+      'type': 'FeatureCollection',
+      'features': [
+        for (final e in list)
+          {
+            'type': 'Feature',
+            'id': e.id,
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [e.lng, e.lat]
+            },
+            'properties': {
+              'id': e.id,
+              'live': e.stateAt(at) == EventState.live,
+            },
+          }
+      ],
     });
   }
 
-  addModelLayer(List<EventModel> events) async {
-    List<Feature> features = [];
-
-    for (EventModel event in events) {
-      features.add(Feature(
-          id: events.indexOf(event),
-          geometry: Point(
-              coordinates: mb.Position(
-                  event.location.longitude, event.location.latitude)),
-          properties: {
-            'name': event.eventName,
-            'location': event.locationName,
-            'index': events.indexOf(event)
-          }));
-    }
-    FeatureCollection featureCollection = FeatureCollection(features: features);
-    if (mapboxMap == null) {
-      throw Exception("MapboxMap is not ready yet");
-    }
-    await mapboxMap?.style.addSource(
-        GeoJsonSource(id: "events", data: json.encode(featureCollection)));
-
-    await mapboxMap?.style.addStyleModel("eventsModel",
-        "https://github.com/M4dhav/alpha-go/raw/demo-v1.3.1/assets/bitcoin/main.glb");
-
-    var modelLayer = ModelLayer(id: "eventsLayer", sourceId: "events");
-    modelLayer.modelId = "eventsModel";
-    modelLayer.modelScale = [10, 10, 10];
-    modelLayer.modelType = ModelType.COMMON_3D;
-    await mapboxMap?.style.addLayer(modelLayer);
-
-    log('added modelLayer');
+  Future<void> _refreshPins() async {
+    if (!styleReady || map == null) return;
+    final src = await map!.style.getSource('events');
+    if (src is mb.GeoJsonSource) await src.updateGeoJSON(_geojson());
+    if (mounted) setState(() {});
   }
 
-  _onMapCreated(mb.MapboxMap mapboxMap) {
-    this.mapboxMap = mapboxMap;
-    mapboxMap.location.updateSettings(mb.LocationComponentSettings(
-        enabled: true,
-        puckBearing: mb.PuckBearing.HEADING,
-        puckBearingEnabled: true,
-        locationPuck: mb.LocationPuck(
-            locationPuck3D: mb.LocationPuck3D(
-          modelUri:
-              "https://github.com/M4dhav/alpha-go/raw/dev/assets/pointer.glb",
-          modelScale: [2, 2, 2],
-          position: [userPos!.longitude, userPos!.latitude],
-        ))));
-    log('puck added');
+  Future<void> _onStyleLoaded(mb.StyleLoadedEventData _) async {
+    final m = map!;
+    await m.style.addSource(mb.GeoJsonSource(id: 'events', data: _geojson()));
+    await m.style.addLayer(mb.CircleLayer(
+      id: 'events-dots',
+      sourceId: 'events',
+      circleRadius: 9,
+      circleColorExpression: [
+        'case',
+        ['get', 'live'],
+        0xffecc978,
+        0x00000000
+      ],
+      circleStrokeColor: 0xffecc978,
+      circleStrokeWidth: 2.5,
+      circlePitchAlignment: mb.CirclePitchAlignment.MAP,
+    ));
+    m.addInteraction(
+      mb.TapInteraction(mb.FeaturesetDescriptor(layerId: 'events-dots'),
+          (feature, _) {
+        final id = feature.properties['id'] as String?;
+        final ev = id == null ? null : events.byId(id);
+        if (ev != null && mounted) context.push('/eventDetails', extra: ev);
+      }, stopPropagation: false),
+      interactionID: 'eventTap',
+    );
+    styleReady = true;
+    await _askLocation();
+    if (mounted) setState(() {});
   }
 
-  _onStyleLoaded(StyleLoadedEventData data) async {
-    await addModelLayer(eventController.events);
-    log('style loaded');
-    mapboxMap!.addInteraction(
-        TapInteraction(
-          FeaturesetDescriptor(
-            layerId: "eventsLayer",
-          ),
-          (feature, mapContext) async {
-            EventModel event =
-                eventController.events[feature.properties['index'] as int];
+  void _setDay(int i) {
+    setState(() => at = Sgt.week[i].add(Duration(
+        minutes: (hourOfDay * 60).round())));
+    _refreshPins();
+  }
 
-            if (mounted) {
-              showDialog(
-                context: context,
-                builder: (context) => EventWidget(
-                  event: event,
-                  hosts: event.hosts,
-                ),
-              );
-            }
-          },
-          stopPropagation: false,
-        ),
-        interactionID: "eventTapInteraction");
+  void _setHour(double h) {
+    setState(() =>
+        at = Sgt.week[dayIndex].add(Duration(minutes: (h * 60).round())));
+    _refreshPins();
+  }
 
-    log('loaded interactions');
+  void _now() {
+    setState(() => at = _defaultTime());
+    _refreshPins();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-          image: DecorationImage(
-              image: AssetImage("assets/bg.jpg"), fit: BoxFit.cover)),
-      child: Scaffold(
-        key: _scaffoldKey,
-        drawer: const CustomDrawer(),
-        extendBodyBehindAppBar: true,
-        backgroundColor: Colors.transparent,
-        appBar: CustomNavBar(
-            leadingWidget: Padding(
-              padding: EdgeInsets.only(left: 3.w),
-              child: Image.asset(
-                'assets/alpha.jpg',
-                fit: BoxFit.contain,
-              ),
-            ),
-            actionWidgets: Row(
+    final styleUrl = Constants.mapboxStyleUrl.isNotEmpty
+        ? Constants.mapboxStyleUrl
+        : mb.MapboxStyles.DARK;
+    return Scaffold(
+      key: _scaffoldKey,
+      drawer: const CustomDrawer(),
+      backgroundColor: Colors.black,
+      appBar: CustomNavBar(
+        leadingWidget: Padding(
+          padding: EdgeInsets.only(left: 3.w),
+          child: Image.asset('assets/alpha.jpg', fit: BoxFit.contain),
+        ),
+        actionWidgets: IconButton(
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+          icon: Icon(Icons.menu, color: Constants.gold, size: 29.sp),
+        ),
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: Stack(
               children: [
-                InkWell(
-                  onTap: () {
-                    context.push("/search");
-                  },
-                  child: Container(
-                    width: 50.w,
-                    padding: EdgeInsets.only(bottom: 1.h, top: 1.h, right: 2.w),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(
-                          color: const Color(0xffb4914b),
-                          width: 0.4.sp,
-                        ),
-                      ),
-                    ),
-                    child: Text(
-                      'Search',
-                      style: TextStyle(
-                        color: const Color(0xffb4914b),
-                        fontSize: 16.sp,
+                mb.MapWidget(
+                  key: const ValueKey('mapWidget'),
+                  styleUri: styleUrl,
+                  cameraOptions: mb.CameraOptions(
+                      center: center, zoom: 13.6, pitch: 45),
+                  onMapCreated: (m) => map = m,
+                  onStyleLoadedListener: _onStyleLoaded,
+                ),
+                Positioned(
+                  left: 10,
+                  top: 10,
+                  child: Obx(() {
+                    events.events.length;
+                    final text = events.loading.value
+                        ? 'Loading events…'
+                        : events.error.value ??
+                            '${visible.length} on or starting soon';
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.75),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Constants.gold)),
+                      child: Text(text,
+                          style: const TextStyle(
+                              fontFamily: 'Roboto', fontSize: 13)),
+                    );
+                  }),
+                ),
+              ],
+            ),
+          ),
+          _dial(),
+        ],
+      ),
+    );
+  }
+
+  Widget _dial() {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return Container(
+      color: Colors.black,
+      padding: EdgeInsets.fromLTRB(3.w, 1.h, 3.w, 9.h),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Text('${Sgt.day(at)}  ${Sgt.time(at)}',
+                  style: TextStyle(
+                      fontFamily: 'Cinzel',
+                      color: Constants.gold,
+                      fontSize: 17.sp)),
+              const Spacer(),
+              OutlinedButton(
+                onPressed: _now,
+                style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Constants.gold)),
+                child: const Text('Now',
+                    style: TextStyle(color: Constants.gold)),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              for (var i = 0; i < 7; i++)
+                Expanded(
+                  child: InkWell(
+                    onTap: () => _setDay(i),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Column(
+                        children: [
+                          Text(days[i],
+                              style: TextStyle(
+                                  fontFamily: 'Roboto',
+                                  fontSize: 13,
+                                  color: i == dayIndex
+                                      ? Constants.gold
+                                      : Colors.white60)),
+                          Text('${5 + i}',
+                              style: TextStyle(
+                                  fontFamily: 'Roboto',
+                                  fontWeight: FontWeight.bold,
+                                  color: i == dayIndex
+                                      ? Constants.gold
+                                      : Colors.white60)),
+                        ],
                       ),
                     ),
                   ),
                 ),
-                Padding(
-                  padding: EdgeInsets.only(
-                    right: 3.w,
-                  ),
-                  child: Center(
-                    child: IconButton(
-                        onPressed: () {
-                          _scaffoldKey.currentState?.openDrawer();
-                          log('opening');
-                        },
-                        icon: Icon(
-                          Icons.menu,
-                          color: const Color(0xffb4914b),
-                          size: 29.sp,
-                        )),
-                  ),
-                )
-              ],
-            )),
-        body: userPos == null
-            ? const Center(
-                child: CircularProgressIndicator(),
-              )
-            : mb.MapWidget(
-                // mapOptions: mb.MapOptions(
-                //     pixelRatio: 1.0, orientation: mb.NorthOrientation.UPWARDS),
-                key: const ValueKey("mapWidget"),
-                onMapCreated: _onMapCreated,
-                onStyleLoadedListener: _onStyleLoaded,
-                // onTapListener: _onTapListener,
-                styleUri: Constants.mapboxStyleUrl,
-                cameraOptions: mb.CameraOptions(
-                    pitch: 80,
-                    center: mb.Point(
-                        coordinates: mb.Position(
-                            2.3561321520770133, 48.857386674033336)),
-                    // center: mb.Point(
-                    //     coordinates: mb.Position(
-                    //         userPos!.longitude, userPos!.latitude + 0.0016)),
-                    zoom: 18.0),
-              ),
-        // floatingActionButton: FloatingActionButton(
-        //   onPressed: () {
-        //     determinePosition().then((value) {
-        //       setState(() async {
-        //         await mapboxMap?.flyTo(
-        //             mb.CameraOptions(
-        //                 pitch: 90,
-        //                 center: mb.Point(
-        //                     coordinates:
-        //                         mb.Position(value.longitude, value.latitude)),
-        //                 zoom: 12.0),
-        //             mb.MapAnimationOptions());
-        //       });
-        //     });
-        //   },
-        //   child: const Icon(Icons.my_location),
-        // ),
-        // floatingActionButtonLocation: FloatingActionButtonLocation.endContained,
+            ],
+          ),
+          Slider(
+            value: hourOfDay.clamp(0, 23.75),
+            min: 0,
+            max: 23.75,
+            divisions: 95,
+            activeColor: Constants.gold,
+            onChanged: _setHour,
+          ),
+        ],
       ),
     );
   }

@@ -1,32 +1,21 @@
-import 'dart:developer';
-
 import 'package:alpha_go/controllers/biometrics_controller.dart';
 import 'package:alpha_go/controllers/event_controller.dart';
-import 'package:alpha_go/controllers/timeline_post_controller.dart';
 import 'package:alpha_go/controllers/user_controller.dart';
+import 'package:alpha_go/controllers/vibe_controller.dart';
 import 'package:alpha_go/controllers/wallet_controller.dart';
-import 'package:alpha_go/models/collection_model.dart';
+import 'package:alpha_go/models/event_model.dart';
+import 'package:alpha_go/services/secure_store.dart';
+import 'package:alpha_go/views/screens/account_screen.dart';
 import 'package:alpha_go/views/screens/base_view.dart';
+import 'package:alpha_go/views/screens/edit_profile_screen.dart';
 import 'package:alpha_go/views/screens/event_details_screen.dart';
 import 'package:alpha_go/views/screens/generate_mnemonic_screen.dart';
 import 'package:alpha_go/views/screens/import_mnemonic_screen.dart';
 import 'package:alpha_go/views/screens/legal_screen.dart';
-import 'package:alpha_go/views/screens/marketplace_screens/explore_ordinals_screen.dart';
-import 'package:alpha_go/views/screens/marketplace_screens/ordinal_listing_screen.dart';
-import 'package:alpha_go/views/screens/marketplace_screens/inscription_details_screen.dart';
-import 'package:alpha_go/views/screens/marketplace_screens/marketplace_base_screen.dart';
-import 'package:alpha_go/views/screens/marketplace_screens/mint_ordinals_screen.dart';
-import 'package:alpha_go/views/screens/onboarding.dart';
-import 'package:alpha_go/views/screens/search_screen.dart';
 import 'package:alpha_go/views/screens/send_token_screen.dart';
-import 'package:alpha_go/views/screens/marketplace_screens/ordinal_collection_details_screen.dart';
-import 'package:alpha_go/views/screens/marketplace_screens/ordinal_collection_screen.dart';
 import 'package:alpha_go/views/screens/wallet_created_screen.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:go_router/go_router.dart';
-import 'package:vs_story_designer/vs_story_designer.dart';
-import 'firebase_options.dart';
 import 'package:alpha_go/views/screens/login_screen.dart';
 import 'package:alpha_go/views/screens/set_password_screen.dart';
 import 'package:flutter/material.dart';
@@ -37,12 +26,8 @@ import 'package:responsive_sizer/responsive_sizer.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load environment variables
   await dotenv.load(fileName: ".env");
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
   final SharedPreferencesWithCache prefs =
       Get.put(await SharedPreferencesWithCache.create(
     cacheOptions: const SharedPreferencesWithCacheOptions(),
@@ -50,27 +35,26 @@ void main() async {
 
   final WalletController controller = Get.put(WalletController());
   Get.put(UserController());
-  final TimelinePostController timelineController =
-      Get.put(TimelinePostController());
+  Get.put(VibeController());
   final EventController eventController = Get.put(EventController());
   final BiometricsController auth = Get.put(BiometricsController());
-  await eventController.getEvents();
-  await timelineController.getPosts();
   await auth.initialize();
-  if (prefs.containsKey("mnemonic") && prefs.getString("mnemonic") != null) {
-    controller.mnemonic = prefs.getString("mnemonic")!;
-    controller.password = prefs.getString("password")!;
-    log(controller.mnemonic!);
-    log("start wallet creation");
-    await controller.createOrRestoreOrdinalWallet();
-    await controller.createOrRestoreFundingWallet();
-    log("wallet created");
-    controller.initWallet();
+  // Events load in the background; the map and list show progress.
+  eventController.getEvents();
 
-    runApp(MyApp(
-        initWidget: const SetPasswordScreen(
-      isEnter: true,
-    )));
+  // Builds before 1.5 kept the phrase in plain SharedPreferences. Move it into
+  // secure storage and delete the old copies.
+  final legacy = prefs.getString("mnemonic");
+  if (legacy != null) {
+    await SecureStore.saveWallet(legacy, prefs.getString("password") ?? "");
+    await prefs.remove("mnemonic");
+    await prefs.remove("password");
+  }
+
+  final mnemonic = await SecureStore.mnemonic();
+  if (mnemonic != null) {
+    controller.mnemonic = mnemonic;
+    runApp(MyApp(initWidget: const SetPasswordScreen(isEnter: true)));
   } else {
     runApp(MyApp(initWidget: const LoginPage()));
   }
@@ -78,8 +62,6 @@ void main() async {
 
 class MyApp extends StatelessWidget {
   MyApp({super.key, required this.initWidget}) {
-    final TimelinePostController timelineController =
-        Get.find<TimelinePostController>();
     router = GoRouter(
       initialLocation: '/',
       routes: [
@@ -98,7 +80,6 @@ class MyApp extends StatelessWidget {
             GoRoute(
               path: 'home',
               builder: (context, state) => const NavBar(),
-              // builder: (context, state) => OrdinalListingFormScreen(),
             ),
             GoRoute(
                 path: 'legal',
@@ -132,105 +113,19 @@ class MyApp extends StatelessWidget {
                   return const LoginPage();
                 }),
             GoRoute(
-                path: 'onboarding',
+                path: 'account',
                 builder: (context, state) {
-                  return const OnboardingScreen();
+                  return const AccountScreen();
                 }),
             GoRoute(
-                path: 'search',
-                pageBuilder: (context, state) => CustomTransitionPage(
-                    child: const SearchScreen(),
-                    transitionsBuilder:
-                        (context, animation, secondaryAnimation, child) {
-                      const begin =
-                          Offset(0.0, 1.0); // Start from below the screen
-                      const end = Offset.zero; // End at the current position
-                      const curve = Curves.easeInOutQuad;
-
-                      var tween = Tween(begin: begin, end: end)
-                          .chain(CurveTween(curve: curve));
-                      var offsetAnimation = animation.drive(tween);
-
-                      return SlideTransition(
-                        position: offsetAnimation,
-                        child: child,
-                      );
-                    })),
-            GoRoute(
-              path: 'event',
-              builder: (context, state) {
-                final eventName = state.uri.queryParameters['event'];
-                final EventController eventController =
-                    Get.find<EventController>();
-                final event = eventController.events.firstWhere(
-                  (element) {
-                    return element.eventName == eventName?.replaceAll('-', ' ');
-                  },
-                );
-                return EventDetailsScreen(event: event, hosts: event.hosts);
-              },
-            ),
-            GoRoute(
-                path: 'storyDesigner',
-                builder: (context, state) => VSStoryDesigner(
-                    onDone: (String uri) {
-                      timelineController.addPostToTimeline(uri);
-                      context.pop();
-                    },
-                    mediaPath: state.extra as String,
-                    middleBottomWidget: Container(),
-                    centerText: '')),
-            GoRoute(
-              path: 'collectionDetails',
-              builder: (context, state) {
-                final collection = state.extra as OrdinalCollectionModel;
-                return CollectionDetailPage(collection: collection);
-              },
-            ),
-            GoRoute(
-                path: 'marketplace',
+                path: 'editProfile',
                 builder: (context, state) {
-                  return const MarketPlaceBaseScreen();
-                }),
-            GoRoute(
-              path: 'exploreCollections',
-              builder: (context, state) {
-                return CollectionPage();
-              },
-            ),
-            GoRoute(
-                path: 'listOrdinal',
-                builder: (context, state) {
-                  return OrdinalListingScreen();
-                }),
-            GoRoute(
-                path: 'inscriptionDetailsBuy',
-                builder: (context, state) {
-                  return const InscriptionDetailPage(
-                    showBuyButton: true,
-                  );
-                }),
-            GoRoute(
-                path: 'inscriptionDetails',
-                builder: (context, state) {
-                  return const InscriptionDetailPage(
-                    showBuyButton: false,
-                  );
-                }),
-            GoRoute(
-                path: 'OrdinalBuy',
-                builder: (context, state) {
-                  return OrdinalListingsScreen2();
+                  return const EditProfileScreen();
                 }),
             GoRoute(
               path: 'eventDetails',
-              builder: (context, state) => EventDetailsScreen(
-                  event: (state.extra as List)[0],
-                  hosts: (state.extra as List)[1]),
-            ),
-            GoRoute(
-              path: 'mintOrdinal',
-              builder: (context, state) => const MintOrdinalsScreen(),
+              builder: (context, state) =>
+                  EventDetailsScreen(event: state.extra as EventModel),
             ),
             GoRoute(
               path: 'token',

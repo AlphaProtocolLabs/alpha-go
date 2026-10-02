@@ -52,5 +52,10 @@ final class Constants {
   static String get mapboxStyleUrl => dotenv.get('MAPBOX_STYLE_URL');
   static String get mapboxToken => dotenv.get('MAPBOX_TOKEN');
   static String get ordiscanApiKey => dotenv.get('ORDISCAN_API_KEY');
-  
+
+  /// Alpha GO accounts, profiles and events. Same accounts as the web guide.
+  static String get apiBase =>
+      dotenv.get('API_BASE', fallback: 'https://go.alphaprotocol.network');
+  static const gold = Color(0xffb4914b);
+
 }

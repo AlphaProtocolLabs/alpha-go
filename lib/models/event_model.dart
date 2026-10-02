@@ -1,49 +1,97 @@
-import 'package:alpha_go/models/user_model.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+enum EventState { live, soon, later, ended }
 
+/// One event from the go.alphaprotocol.network feed.
 class EventModel {
-  final String imageUrl;
-  final String eventName;
-  final String description;
-  final GeoPoint location;
-  final DateTime startTime;
-  final DateTime endTime;
-  late final List<WalletUser> hosts;
-  final String locationName;
-  final int cost;
-
   EventModel({
-    required this.imageUrl,
-    required this.eventName,
-    required this.description,
-    required this.location,
-    required this.startTime,
-    required this.endTime,
-    required this.hosts,
-    required this.cost,
-    required this.locationName,
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.price,
+    required this.free,
+    required this.url,
+    this.start,
+    this.end,
+    this.lat,
+    this.lng,
+    this.venue,
+    this.address,
+    this.area,
+    this.org,
+    this.hosts = const [],
+    this.cover,
+    this.locationHidden = false,
+    this.inviteOnly = false,
+    this.approval = false,
   });
 
-  EventModel.fromMap(Map<String, dynamic> map)
-      : imageUrl = map['imageUrl'],
-        eventName = map['eventName'],
-        description = map['description'],
-        location = map['location'],
-        startTime = DateTime.parse(map['startTime']),
-        endTime = DateTime.parse(map['endTime']),
-        cost = map['cost'] ?? 0,
-        locationName = map['locationName'];
-  Map<String, dynamic> toMap() {
-    return {
-      'imageUrl': imageUrl,
-      'eventName': eventName,
-      'description': description,
-      'location': GeoPoint(location.latitude, location.longitude),
-      'startTime': startTime.toIso8601String(),
-      'endTime': endTime.toIso8601String(),
-      'hostId': hosts.map((host) => host.walletAddress).toList(),
-      'cost': cost,
-      'locationName': locationName,
-    };
+  final String id;
+  final String name;
+  final String type;
+  final String price;
+  final bool free;
+  final String url;
+  final DateTime? start;
+  final DateTime? end;
+  final double? lat;
+  final double? lng;
+  final String? venue;
+  final String? address;
+  final String? area;
+  final String? org;
+  final List<String> hosts;
+  final String? cover;
+
+  /// The organiser shares the address after you register; the pin is the approximate area.
+  final bool locationHidden;
+  final bool inviteOnly;
+  final bool approval;
+
+  static const soonWindow = Duration(hours: 2);
+
+  bool get hasLocation => lat != null && lng != null;
+
+  /// Events without an end time are treated as two hours long.
+  DateTime? get effectiveEnd =>
+      end ?? start?.add(const Duration(hours: 2));
+
+  EventState stateAt(DateTime t) {
+    final s = start;
+    final e = effectiveEnd;
+    if (s == null || e == null) return EventState.later;
+    if (t.isAfter(e)) return EventState.ended;
+    if (!t.isBefore(s)) return EventState.live;
+    if (s.difference(t) <= soonWindow) return EventState.soon;
+    return EventState.later;
   }
+
+  String get placeLabel =>
+      venue ?? area ?? (locationHidden ? 'Location shared after you register' : 'Singapore');
+
+  String get hostLabel =>
+      hosts.isNotEmpty ? hosts.join(', ') : (org ?? '');
+
+  static DateTime? _ms(Object? v) =>
+      v is num ? DateTime.fromMillisecondsSinceEpoch(v.toInt(), isUtc: true) : null;
+
+  factory EventModel.fromApi(Map<String, dynamic> m) => EventModel(
+        id: m['id'] as String,
+        name: m['name'] as String,
+        type: m['type'] as String? ?? 'Other',
+        price: m['price'] as String? ?? '',
+        free: m['free'] as bool? ?? false,
+        url: m['url'] as String? ?? '',
+        start: _ms(m['s']),
+        end: _ms(m['e']),
+        lat: (m['lat'] as num?)?.toDouble(),
+        lng: (m['lng'] as num?)?.toDouble(),
+        venue: m['venue'] as String?,
+        address: m['address'] as String?,
+        area: m['area'] as String?,
+        org: m['org'] as String?,
+        hosts: List<String>.from(m['hosts'] as List? ?? const []),
+        cover: m['cover'] as String?,
+        locationHidden: m['hidden'] as bool? ?? false,
+        inviteOnly: m['invite'] as bool? ?? false,
+        approval: m['approval'] as bool? ?? false,
+      );
 }

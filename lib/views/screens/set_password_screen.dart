@@ -3,15 +3,12 @@ import 'package:alpha_go/controllers/biometrics_controller.dart';
 import 'package:alpha_go/controllers/user_controller.dart';
 import 'package:alpha_go/controllers/wallet_controller.dart';
 import 'package:alpha_go/models/const_model.dart';
-import 'package:alpha_go/models/firebase_model.dart';
-import 'package:alpha_go/models/user_model.dart';
+import 'package:alpha_go/services/secure_store.dart';
 import 'package:alpha_go/views/widgets/navbar_widget.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:go_router/go_router.dart';
 import 'package:responsive_sizer/responsive_sizer.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class SetPasswordScreen extends StatefulWidget {
   const SetPasswordScreen(
@@ -28,7 +25,6 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
   TextEditingController confirmPassword = TextEditingController();
   final WalletController controller = Get.find();
   final UserController userController = Get.find();
-  final SharedPreferencesWithCache prefs = Get.find();
   final BiometricsController auth = Get.find();
 
   @override
@@ -49,43 +45,20 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
     );
   }
 
+  bool busy = false;
+
+  /// Unlocks the wallet, then opens the account: home if signed in, sign-in otherwise.
   Future<void> goToHome() async {
+    setState(() => busy = true);
     await controller.createOrRestoreOrdinalWallet();
     await controller.createOrRestoreFundingWallet();
-
-    await FirebaseUtils.users
-        .doc(controller.ordinalAddress)
-        .get()
-        .then((value) async {
-      try {
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: "${controller.ordinalAddress}@alphago.com",
-          password: controller.password!,
-        );
-      } on FirebaseAuthException catch (e) {
-        if (e.code == 'user-not-found') {
-          log('No user found for that email.');
-        } else if (e.code == 'wrong-password') {
-          log('Wrong password provided for that user.');
-        } else {
-          log(e.toString());
-        }
-      }
-      Map<String, dynamic> data = value.data() as Map<String, dynamic>;
-      userController.setUser(WalletUser(
-          accountName: data["accountName"]!,
-          walletAddress: data["walletAddress"]!,
-          bio: data["bio"]!,
-          pfpUrl: data["pfpUrl"]!,
-          externalLink: data["externalLink"] ?? ""));
-    });
-
+    final signedIn = await userController.refreshAccount();
+    if (signedIn) await userController.linkWallet(controller.ordinalAddress);
+    if (!mounted) return;
     while (context.canPop()) {
       context.pop();
     }
-    context.pushReplacement(
-      '/home',
-    );
+    context.pushReplacement(signedIn ? '/home' : '/account');
   }
 
   @override
@@ -139,6 +112,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                   child: TextField(
                     style: Constants.inputStyle,
                     controller: password,
+                    obscureText: true,
                     decoration: Constants.inputDecoration.copyWith(
                       hintText: "Enter your Password",
                     ),
@@ -151,15 +125,16 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                         child: ElevatedButton(
                             style: Constants.buttonStyle,
                             onPressed: () async {
-                              await prefs.remove('mnemonic');
-                              await prefs.remove('password');
-                              FirebaseAuth.instance.signOut();
+                              final ok = await confirmForget(context);
+                              if (!ok || !context.mounted) return;
+                              await SecureStore.wipe();
+                              await userController.signOut();
                               while (context.canPop()) {
                                 context.pop();
                               }
                               context.pushReplacement('/login');
                             },
-                            child: const Text('Logout')),
+                            child: const Text('Use a different wallet')),
                       )
                     : Padding(
                         padding: EdgeInsets.only(top: 5.h),
@@ -167,6 +142,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                           cursorColor: Colors.white,
                           style: Constants.inputStyle,
                           controller: confirmPassword,
+                          obscureText: true,
                           decoration: Constants.inputDecoration
                               .copyWith(hintText: "Confirm your password"),
                         ),
@@ -193,7 +169,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
 
                       log(alphanumeric.hasMatch(password.text).toString());
                       if (widget.isEnter) {
-                        if (password.text == controller.password) {
+                        if (await SecureStore.checkPassword(password.text)) {
                           goToHome();
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -210,7 +186,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text(
-                                  "Password must contain at least 1 uppercase letter, 1 number, 1 special character and should be at least 6 characters long"),
+                                  "Use at least 8 characters with an uppercase letter, a number and a symbol (@\$!%*?&)."),
                               backgroundColor: Colors.red,
                             ),
                           );
@@ -226,7 +202,12 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                         }
                       }
                     },
-                    child: const Text("Continue"),
+                    child: busy
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text("Continue"),
                   ),
                 ),
               ],
@@ -234,4 +215,26 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
           )),
     );
   }
+}
+
+/// Forgetting the wallet deletes the recovery phrase from this phone.
+Future<bool> confirmForget(BuildContext context) async {
+  return await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: Colors.black,
+          title: const Text('Remove this wallet?'),
+          content: const Text(
+              'This deletes the recovery phrase from this phone. Without your written copy of the phrase, any bitcoin in this wallet is lost.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Remove')),
+          ],
+        ),
+      ) ??
+      false;
 }

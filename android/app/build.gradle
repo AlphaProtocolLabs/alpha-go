@@ -1,7 +1,6 @@
 plugins {
     id "com.android.application"
     // START: FlutterFire Configuration
-    id 'com.google.gms.google-services'
     // END: FlutterFire Configuration
     id "kotlin-android"
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -26,9 +25,19 @@ if (flutterVersionName == null) {
     flutterVersionName = "1.0"
 }
 
+// Release signing. The keystore lives outside the repo; point ALPHA_GO_KEY_PROPERTIES
+// (or android/key.properties, git-ignored) at a file with storeFile, storePassword,
+// keyAlias and keyPassword. Without it, release builds fall back to the debug key.
+def keystoreProperties = new Properties()
+def keyPropsPath = System.getenv("ALPHA_GO_KEY_PROPERTIES") ?: rootProject.file("key.properties").path
+def keyPropsFile = new File(keyPropsPath)
+if (keyPropsFile.exists()) {
+    keyPropsFile.withReader("UTF-8") { reader -> keystoreProperties.load(reader) }
+}
+
 android {
     namespace = "com.alphaprotocol.alpha_go"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     compileOptions {
@@ -47,11 +56,20 @@ android {
         versionName = flutterVersionName
     }
 
+    signingConfigs {
+        release {
+            if (keyPropsFile.exists()) {
+                storeFile = file(keystoreProperties["storeFile"])
+                storePassword = keystoreProperties["storePassword"]
+                keyAlias = keystoreProperties["keyAlias"]
+                keyPassword = keystoreProperties["keyPassword"]
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            signingConfig = keyPropsFile.exists() ? signingConfigs.release : signingConfigs.debug
         }
     }
 }

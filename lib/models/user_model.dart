@@ -1,32 +1,59 @@
-class WalletUser {
-  String pfpUrl;
-  final String walletAddress;
-  final String accountName;
-  final String bio;
-  final String externalLink;
-
-  WalletUser({
-    required this.pfpUrl,
-    required this.walletAddress,
-    required this.accountName,
-    required this.bio,
-    required this.externalLink,
+/// The signed-in member. One profile, shared with the go.alphaprotocol.network guide.
+class Account {
+  Account({
+    required this.id,
+    required this.name,
+    required this.email,
+    this.bio,
+    this.link,
+    this.avatarUrl,
+    this.btcAddress,
+    this.aptosAddress,
+    required this.refCode,
+    required this.memberSince,
+    required this.saves,
+    required this.checkins,
+    required this.vibe,
   });
 
-  WalletUser.fromMap(Map<String, dynamic> map)
-      : pfpUrl = map['pfpUrl'],
-        walletAddress = map['walletAddress'] ?? "",
-        accountName = map['accountName'] ?? "",
-        bio = map['bio'] ?? "",
-        externalLink = map['externalLink'] ?? "";
+  final String id;
+  final String name;
+  final String email;
+  final String? bio;
+  final String? link;
+  final String? avatarUrl;
+  final String? btcAddress;
+  final String? aptosAddress;
+  final String refCode;
+  final DateTime memberSince;
+  final Set<String> saves;
+  final Set<String> checkins;
 
-  Map<String, dynamic> toJson() {
-    return {
-      'pfpUrl': pfpUrl ,
-      'walletAddress': walletAddress,
-      'accountName': accountName,
-      'bio': bio,
-      'externalLink': externalLink,
-    };
+  /// Testnet VIBE balance on the account ledger.
+  final int vibe;
+
+  factory Account.fromApi(Map<String, dynamic> data) {
+    final u = data['user'] as Map<String, dynamic>;
+    return Account(
+      id: u['id'] as String,
+      name: u['name'] as String,
+      email: u['email'] as String,
+      bio: u['bio'] as String?,
+      link: u['link'] as String?,
+      avatarUrl: u['avatarUrl'] as String?,
+      btcAddress: u['btcAddress'] as String?,
+      aptosAddress: u['aptosAddress'] as String?,
+      refCode: u['refCode'] as String,
+      memberSince: DateTime.tryParse(u['memberSince'] as String? ?? '') ??
+          DateTime.now(),
+      saves: Set<String>.from(data['saves'] as List? ?? const []),
+      checkins: Set<String>.from(data['checkins'] as List? ?? const []),
+      vibe: (data['balance'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  String get initials {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    return parts.take(2).map((p) => p.isEmpty ? '' : p[0].toUpperCase()).join();
   }
 }
